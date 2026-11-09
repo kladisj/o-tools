@@ -1,9 +1,11 @@
 import json
 
+import pytest
+
 from osuctools.reader import Game, Match, Score
 from osuctools.cli import main
-from osuctools.salidas.consola import format_clean, format_hardest
-from osuctools.stats import clean_players, hardest_maps, team_series
+from osuctools.salidas.consola import format_clean, format_hardest, format_mvp
+from osuctools.stats import clean_players, hardest_maps, match_costs, team_series
 
 
 def sc(uid, acc=0.98, passed=True, miss=0, c100=0, c50=0, pts=1000, team="red"):
@@ -226,3 +228,65 @@ def test_comando_limpios_de_punta_a_punta(tmp_path, capsys):
     assert "Final" in out and "ana" in out
 
     assert main(["limpios", str(tmp_path / "no-existe.jsonl")]) == 1
+
+
+# --- mapas más duros con NoFail (nadie falla) -----------------------------------
+
+
+def test_sin_fallos_el_orden_automatico_es_por_misses():
+    m = match(1, [
+        game(1, [sc(1, miss=0, acc=0.90), sc(2, miss=0, acc=0.90)], title="Baja acc"),
+        game(2, [sc(1, miss=8, acc=0.99), sc(2, miss=6, acc=0.99)], title="Muchos miss"),
+    ])
+    assert [d.title for d in hardest_maps(m)] == ["Muchos miss", "Baja acc"]
+    assert [d.title for d in hardest_maps(m, by="accuracy")] == ["Baja acc", "Muchos miss"]
+    assert hardest_maps(m)[0].order == "misses"
+
+
+def test_con_fallos_el_orden_automatico_sigue_siendo_por_fallos():
+    m = match(1, [
+        game(1, [sc(1, miss=9), sc(2, miss=9)], title="Miss"),
+        game(2, [sc(1), sc(2, passed=False)], title="Fallo"),
+    ])
+    assert hardest_maps(m)[0].title == "Fallo"
+    assert hardest_maps(m)[0].order == "fallos"
+
+
+def test_criterio_de_dureza_invalido():
+    with pytest.raises(ValueError):
+        hardest_maps(match(1, [game(1, [sc(1)])]), by="otro")
+
+
+# --- MVP por match cost ---------------------------------------------------------
+
+
+def test_match_cost_sigue_la_formula():
+    # 3 mapas; el jugador 1 juega 2 con ratios 1.5 y 1.0 -> suma 2.5, n'=2, n=3
+    m = match(1, [
+        game(1, [sc(1, pts=1500), sc(2, pts=500)]),   # promedio 1000 -> 1.5 / 0.5
+        game(2, [sc(1, pts=1000), sc(2, pts=1000)]),  # promedio 1000 -> 1 / 1
+        game(3, [sc(2, pts=1000)]),
+    ])
+    p = {c.user_id: c for c in match_costs(m)}
+    esperado = (2 / 2 + 2) * 2.5 / (2 / 3 + 2)
+    assert abs(p[1].match_cost - esperado) < 1e-9
+    assert (p[1].maps, p[1].total_maps) == (2, 3)
+    assert abs(p[2].match_cost - 2.5) < 1e-9  # n'=n: el factor vale 1 y queda la suma 0.5+1+1
+    assert match_costs(m)[0].user_id == 1  # 2.81 contra 2.5
+
+
+def test_match_cost_ignora_scores_en_cero_y_warmups():
+    m = match(1, [
+        game(1, [sc(1, pts=9000), sc(2, pts=1000)], title="Warmup"),
+        game(2, [sc(1, pts=1000), sc(2, pts=0)]),
+    ])
+    costs = match_costs(m, skip_first=1)
+    assert [(c.user_id, c.maps, c.total_maps) for c in costs] == [(1, 1, 1)]
+    assert abs(costs[0].avg_ratio - 1.0) < 1e-9
+
+
+def test_match_cost_sin_mapas_y_tabla():
+    assert match_costs(match(1, [])) == []
+    m = match(1, [game(1, [sc(1, pts=2000), sc(2, pts=1000)])], players={1: "ana"}, name="P")
+    text = "\n".join(format_mvp(m, match_costs(m)))
+    assert "MVP: ana" in text and "rojo" in text

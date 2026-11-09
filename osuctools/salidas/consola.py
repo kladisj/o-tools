@@ -42,9 +42,14 @@ def format_hardest(maps, top: int = 5) -> list[str]:
         return ["No hay mapas jugados."]
     multi = len({d.match_id for d in maps}) > 1  # con varias partidas, se aclara cuál
     width = 52 if multi else 36
+    titles = {
+        "fallos": "primero los que más jugadores no pasaron",
+        "misses": "ordenados por misses promedio; a igualdad, menor accuracy",
+        "accuracy": "ordenados por menor accuracy promedio",
+    }
     lines = [
-        "Mapas más duros (primero los que más jugadores fallaron)",
-        f"  {'#':>2}  {'mapa':<{width}} {'★':>4} {'fallos':>7} {'acc prom':>9} {'miss prom':>9}",
+        f"Mapas más duros ({titles.get(maps[0].order, titles['fallos'])})",
+        f"  {'#':>2}  {'mapa':<{width}} {'★':>4} {'no pasaron':>10} {'acc prom':>9} {'miss prom':>9}",
     ]
     for i, d in enumerate(maps[:top], 1):
         name = d.title + (f" [{d.version}]" if d.version else "")
@@ -55,6 +60,82 @@ def format_hardest(maps, top: int = 5) -> list[str]:
         acc = f"{d.avg_accuracy * 100:.2f}%" if d.avg_accuracy is not None else "-"
         miss = f"{d.avg_misses:.1f}" if d.avg_misses is not None else "-"
         lines.append(
-            f"  {i:>2}  {_trunc(name, width):<{width}} {stars:>4} {fails:>7} {acc:>9} {miss:>9}"
+            f"  {i:>2}  {_trunc(name, width):<{width}} {stars:>4} {fails:>10} {acc:>9} {miss:>9}"
         )
+    return lines
+
+
+TEAM_NAMES = {"red": "rojo", "blue": "azul"}
+
+
+def format_mvp(match, costs, top: int = 10) -> list[str]:
+    """MVP y ranking de match cost de una partida."""
+    if not costs:
+        return [f"{match.display_name}: no hay mapas con scores."]
+    best = costs[0]
+    lines = [
+        f"{match.display_name} — {best.total_maps} mapas contados",
+        f"MVP: {best.username} (match cost {best.match_cost:.2f})",
+        "",
+        f"  {'#':>2}  {'jugador':<18} {'equipo':<6} {'mapas':>5} {'match cost':>10} {'ratio prom':>10}",
+    ]
+    for i, p in enumerate(costs[:top], 1):
+        lines.append(
+            f"  {i:>2}  {_trunc(p.username, 18):<18} {TEAM_NAMES.get(p.team, '-'):<6}"
+            f" {p.maps:>2}/{p.total_maps:<2} {p.match_cost:>10.2f} {p.avg_ratio:>10.2f}"
+        )
+    return lines
+
+
+def format_torneo(s, top: int = 10) -> list[str]:
+    """Resumen general de un torneo (ver torneo/resumen.py)."""
+    lines = [f"TORNEO: {s.matches} partida(s), {s.games} mapas, {s.players} jugadores, "
+             f"{s.beatmaps} mapas distintos"]
+    if s.open_matches:
+        lines.append(f"  aviso: {len(s.open_matches)} partida(s) sin cierre registrado (¿en juego "
+                     f"o incompletas?): " + "; ".join(_trunc(n, 30) for n in s.open_matches[:3])
+                     + ("…" if len(s.open_matches) > 3 else ""))
+    if not s.games:
+        return lines + ["", "No hay mapas jugados."]
+
+    lines += ["", "POSICIONES (equipos identificados por país)"]
+    if s.standings:
+        lines.append(f"  {'#':>2}  {'equipo':<8} {'PJ':>3} {'PG':>3} {'PP':>3} {'PE':>3}"
+                     f" {'mapas':>7} {'dif mapas':>9} {'dif score':>11}")
+        for i, t in enumerate(s.standings, 1):
+            lines.append(f"  {i:>2}  {_trunc(t.team, 8):<8} {t.played:>3} {t.won:>3} {t.lost:>3} {t.drawn:>3}"
+                         f" {t.maps_for:>3}-{t.maps_against:<3} {t.map_diff:>+9} {t.score_diff:>+11,}")
+    else:
+        lines.append("  (no se pudieron identificar los equipos por país en ninguna partida)")
+    if s.skipped_standings:
+        lines.append(f"  ({s.skipped_standings} partida(s) fuera de la tabla: equipos sin país único)")
+
+    lines += ["", "RESULTADOS"]
+    for r in s.results:
+        if not r.maps:
+            lines.append(f"  {_trunc(r.name, 36):<36} sin mapas por equipos")
+            continue
+        win = f"gana {r.winner}" if r.winner else "empate"
+        live = "" if r.closed else "  (sin cierre)"
+        lines.append(f"  {_trunc(r.name, 36):<36} {r.red} {r.red_maps}-{r.blue_maps} {r.blue:<6}"
+                     f" {win:<10} dif {r.diff:+,}{live}")
+
+    lines += ["", "JUGADORES (por match cost promedio de cada partida)",
+              f"  {'#':>2}  {'jugador':<16} {'país':<4} {'part':>4} {'mapas':>5} {'MVP':>3}"
+              f" {'cost prom':>9} {'ratio':>6} {'score prom':>10} {'acc':>7} {'miss/mapa':>9}"]
+    for i, p in enumerate(s.player_totals[:top], 1):
+        lines.append(f"  {i:>2}  {_trunc(p.username, 16):<16} {p.country or '-':<4} {p.matches:>4} {p.maps:>5}"
+                     f" {p.mvps:>3} {p.avg_cost:>9.2f} {p.avg_ratio:>6.2f} {p.avg_score:>10,.0f}"
+                     f" {p.avg_acc * 100:>6.2f}% {p.misses_per_map:>9.2f}")
+
+    lines += ["", "MAPAS DEL POOL (más jugados primero)",
+              f"  {'#':>2}  {'mapa':<38} {'★':>4} {'veces':>5} {'score prom':>10} {'acc':>7} {'miss prom':>9}"]
+    for i, t in enumerate(s.map_totals[:top], 1):
+        name = t.title + (f" [{t.version}]" if t.version else "")
+        stars = f"{t.stars:.1f}" if t.stars is not None else "-"
+        lines.append(f"  {i:>2}  {_trunc(name, 38):<38} {stars:>4} {t.plays:>5} {t.avg_score:>10,.0f}"
+                     f" {t.avg_acc * 100:>6.2f}% {t.avg_misses:>9.1f}")
+
+    if s.records:
+        lines += ["", "RÉCORDS"] + [f"  {k}: {v}" for k, v in s.records]
     return lines

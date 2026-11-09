@@ -100,19 +100,28 @@ class MapDifficulty:
     fails: int  # cuántos no lo pasaron
     avg_accuracy: float | None  # promedio de quienes lo pasaron (fracción 0-1)
     avg_misses: float | None  # ídem
+    order: str = "fallos"  # criterio con el que se ordenó: fallos, misses o accuracy
 
     @property
     def fail_rate(self) -> float:
         return self.fails / self.players if self.players else 0.0
 
 
-def hardest_maps(matches, top: int | None = None) -> list[MapDifficulty]:
+def hardest_maps(matches, top: int | None = None, by: str = "auto") -> list[MapDifficulty]:
     """Mapas del más duro al más fácil.
 
-    Orden: primero los que más gente falló; a igualdad, menor accuracy
-    promedio; a igualdad, más misses promedio. Es una definición de "duro"
-    entre varias posibles: para cambiarla, se cambia solo la clave del sort.
+    Criterios (`by`):
+      - "fallos":   más jugadores que no pasaron el mapa; a igualdad, menor
+                    accuracy promedio; a igualdad, más misses promedio.
+      - "misses":   más misses promedio; a igualdad, menor accuracy promedio.
+      - "accuracy": menor accuracy promedio; a igualdad, más misses promedio.
+      - "auto" (por defecto): "fallos" si en algún mapa alguien no pasó; si
+        nadie falló nunca (partidas con NoFail), "misses", porque ahí los
+        fallos valen 0 en todos los mapas y no distinguen nada.
+    Quien no pasó el mapa no entra en los promedios de accuracy ni de misses.
     """
+    if by not in ("auto", "fallos", "misses", "accuracy"):
+        raise ValueError(f"criterio desconocido: {by!r}")
     out: list[MapDifficulty] = []
     for m in _as_list(matches):
         for g in m.games:
@@ -139,13 +148,18 @@ def hardest_maps(matches, top: int | None = None) -> list[MapDifficulty]:
                     ),
                 )
             )
-    out.sort(
-        key=lambda d: (
-            -d.fail_rate,
-            d.avg_accuracy if d.avg_accuracy is not None else -1.0,
-            -(d.avg_misses or 0.0),
-        )
-    )
+    if by == "auto":
+        by = "fallos" if any(d.fails for d in out) else "misses"
+    acc = lambda d: d.avg_accuracy if d.avg_accuracy is not None else -1.0  # noqa: E731
+    mis = lambda d: d.avg_misses if d.avg_misses is not None else float("inf")  # noqa: E731
+    keys = {
+        "fallos": lambda d: (-d.fail_rate, acc(d), -(d.avg_misses or 0.0)),
+        "misses": lambda d: (-mis(d), acc(d)),
+        "accuracy": lambda d: (acc(d), -mis(d)),
+    }
+    for d in out:
+        d.order = by
+    out.sort(key=keys[by])
     return out[:top] if top else out
 
 
@@ -226,3 +240,61 @@ def team_series(match: Match) -> list[MapResult]:
             )
         )
     return results
+
+
+# --- MVP por match cost ---------------------------------------------------------------
+
+
+@dataclass
+class PlayerCost:
+    """Match cost de un jugador en UNA partida.
+
+    n  = total_maps: mapas jugados en toda la partida.
+    n' = maps: mapas en los que participó el jugador.
+    """
+
+    user_id: int
+    username: str
+    maps: int
+    total_maps: int
+    ratio_sum: float  # suma de (score del jugador / score promedio del mapa)
+    team: str | None = None
+
+    @property
+    def avg_ratio(self) -> float:
+        """Promedio de los cocientes: 1.0 = rindió igual que el promedio."""
+        return self.ratio_sum / self.maps if self.maps else 0.0
+
+    @property
+    def match_cost(self) -> float:
+        """(2/n' + 2) x suma(score / score promedio) / (2/n + 2), tal cual la fórmula."""
+        if not self.maps or not self.total_maps:
+            return 0.0
+        return (2 / self.maps + 2) * self.ratio_sum / (2 / self.total_maps + 2)
+
+
+def match_costs(match: Match, skip_first: int = 0) -> list[PlayerCost]:
+    """Match cost de cada jugador de la partida, del mejor (MVP) al peor.
+
+    - Score promedio de un mapa: promedio de todos los scores de ese mapa.
+    - Los scores en 0 no cuentan (ni para el promedio ni como mapa jugado).
+    - skip_first omite los primeros N mapas (warmups), que no son de la serie.
+    - Los scores de quienes fallaron SÍ cuentan, como dice la fórmula
+      ("todos los jugadores que jugaron ese mapa").
+    """
+    games = [g for g in match.games[skip_first:] if any(s.score > 0 for s in g.scores)]
+    n = len(games)
+    acc: dict[int, PlayerCost] = {}
+    for g in games:
+        valid = [s for s in g.scores if s.score > 0]
+        avg = sum(s.score for s in valid) / len(valid)
+        for s in valid:
+            p = acc.get(s.user_id)
+            if p is None:
+                p = acc[s.user_id] = PlayerCost(
+                    user_id=s.user_id, username=match.username(s.user_id),
+                    maps=0, total_maps=n, ratio_sum=0.0)
+            p.maps += 1
+            p.ratio_sum += s.score / avg
+            p.team = s.team or p.team
+    return sorted(acc.values(), key=lambda p: (-p.match_cost, -p.avg_ratio, p.username))

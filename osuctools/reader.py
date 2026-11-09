@@ -63,6 +63,7 @@ class Match:
     end_time: str | None = None
     closed: bool = False  # se vio el evento match-disbanded
     players: dict[int, str] = field(default_factory=dict)  # id -> username
+    countries: dict[int, str] = field(default_factory=dict)  # id -> código de país (CN, FR...)
     sources: list[str] = field(default_factory=list)  # archivos de donde salió
     _games: dict[int, Game] = field(default_factory=dict, repr=False)
 
@@ -131,6 +132,8 @@ def _apply(m: Match, rec: dict) -> None:
     elif kind == "player":
         p = rec["player"]
         m.players[p["id"]] = p.get("username") or str(p["id"])
+        if p.get("country_code"):
+            m.countries[p["id"]] = p["country_code"]
     elif kind == "event":
         e = rec["event"]
         if e.get("game"):
@@ -186,6 +189,7 @@ def _merge(into: Match, other: Match) -> None:
     into.end_time = into.end_time or other.end_time
     into.closed = into.closed or other.closed
     into.players.update(other.players)
+    into.countries.update(other.countries)
     into._games.update(other._games)
     into.sources.extend(s for s in other.sources if s not in into.sources)
 
