@@ -1,19 +1,20 @@
 import json
 
 from osuctools.reader import Game, Match, Score
-from osuctools.salidas.consola import format_clean, format_hardest, main
-from osuctools.stats import clean_players, hardest_maps
+from osuctools.cli import main
+from osuctools.salidas.consola import format_clean, format_hardest
+from osuctools.stats import clean_players, hardest_maps, team_series
 
 
-def sc(uid, acc=0.98, passed=True, miss=0, c100=0, c50=0, pts=1000):
+def sc(uid, acc=0.98, passed=True, miss=0, c100=0, c50=0, pts=1000, team="red"):
     return Score(
-        user_id=uid, score=pts, accuracy=acc, max_combo=500, passed=passed, team="red",
+        user_id=uid, score=pts, accuracy=acc, max_combo=500, passed=passed, team=team,
         statistics={"count_miss": miss, "count_100": c100, "count_50": c50},
     )
 
 
-def game(gid, scores, title="Mapa"):
-    return Game(id=gid, scores=scores, title=title, version="Insane", stars=5.5,
+def game(gid, scores, title="Mapa", team_type="team-vs"):
+    return Game(id=gid, scores=scores, title=title, version="Insane", stars=5.5, team_type=team_type,
                 start_time=f"2026-01-01T10:{gid:02d}:00Z")
 
 
@@ -128,6 +129,51 @@ def test_mapas_sin_scores_se_ignoran_y_top_limita():
     m = match(1, [game(1, []), game(2, [sc(1)]), game(3, [sc(1)])])
     assert len(hardest_maps(m)) == 2
     assert len(hardest_maps(m, top=1)) == 1
+
+
+# --- diferencia entre equipos ----------------------------------------------------
+
+
+def test_serie_de_equipos_diferencia_acumulado_y_marcador():
+    m = match(1, [
+        game(1, [sc(1, pts=3000, team="red"), sc(2, pts=1000, team="blue")]),
+        game(2, [sc(1, pts=500, team="red"), sc(2, pts=2500, team="blue")]),
+        game(3, [sc(1, pts=1500, team="red"), sc(2, pts=1000, team="blue")]),
+    ])
+    r = team_series(m)
+    assert [x.diff for x in r] == [2000, -2000, 500]
+    assert [x.cumulative_diff for x in r] == [2000, 0, 500]
+    assert [x.winner for x in r] == ["red", "blue", "red"]
+    assert [(x.red_wins, x.blue_wins) for x in r] == [(1, 0), (1, 1), (2, 1)]
+    assert not any(x.flipped for x in r)
+
+
+def test_serie_no_suma_a_los_que_fallaron_y_marca_si_eso_cambia_el_ganador():
+    m = match(1, [game(1, [
+        sc(1, pts=1000, team="red"),
+        sc(2, pts=5000, team="red", passed=False),
+        sc(3, pts=3000, team="blue"),
+    ])])
+    [r] = team_series(m)
+    assert (r.red, r.blue) == (1000, 3000)
+    assert r.winner == "blue"
+    assert r.flipped  # contando al que falló, ganaría el rojo
+
+
+def test_serie_empate_no_suma_victorias():
+    m = match(1, [game(1, [sc(1, pts=500, team="red"), sc(2, pts=500, team="blue")])])
+    [r] = team_series(m)
+    assert r.winner is None
+    assert (r.red_wins, r.blue_wins) == (0, 0)
+    assert r.diff == 0
+
+
+def test_serie_ignora_mapas_sin_equipos():
+    m = match(1, [
+        game(1, [sc(1, pts=900, team=None), sc(2, pts=800, team=None)], team_type="head-to-head"),
+        game(2, [sc(1, pts=900, team="red"), sc(2, pts=800, team="blue")]),
+    ])
+    assert len(team_series(m)) == 1
 
 
 # --- salidas.consola -----------------------------------------------------------

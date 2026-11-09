@@ -1,17 +1,8 @@
 """Salida por consola: arma tablas de texto con los resultados de stats.
 
 Las funciones format_* solo devuelven líneas de texto (no imprimen), así se
-pueden probar. main() es el comando:
-
-    python -m osuctools limpios ~/github/osu/datos/OWC2026
-    python -m osuctools duros ~/github/osu/datos/OWC2026/china-francia.jsonl
+pueden probar. El comando que las usa está en cli.py.
 """
-
-import argparse
-import sys
-
-from ..reader import ReaderError, load
-from ..stats import clean_players, hardest_maps
 
 
 def _trunc(text: str, width: int) -> str:
@@ -67,37 +58,3 @@ def format_hardest(maps, top: int = 5) -> list[str]:
             f"  {i:>2}  {_trunc(name, width):<{width}} {stars:>4} {fails:>7} {acc:>9} {miss:>9}"
         )
     return lines
-
-
-def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="osuctools",
-        description="Estadísticas de partidas de osu! a partir de los archivos .jsonl de livelobby.",
-    )
-    sub = parser.add_subparsers(dest="comando", required=True)
-    limpios = sub.add_parser("limpios", help="jugadores más limpios (menos misses por mapa)")
-    duros = sub.add_parser("duros", help="mapas más duros (más jugadores que fallaron)")
-    for p in (limpios, duros):
-        p.add_argument("rutas", nargs="+", metavar="RUTA",
-                       help="archivo .jsonl o carpeta con archivos .jsonl")
-        p.add_argument("--top", type=int, default=None, help="cuántos mostrar")
-    limpios.add_argument("--min-mapas", type=int, default=1,
-                         help="mínimo de mapas pasados para aparecer en el ranking")
-    args = parser.parse_args(argv)
-
-    try:
-        matches = load(*args.rutas)
-    except (ReaderError, FileNotFoundError) as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-    if not matches:
-        print("No encontré partidas en las rutas indicadas.", file=sys.stderr)
-        return 1
-
-    lines = format_header(matches)
-    if args.comando == "limpios":
-        lines += format_clean(clean_players(matches, min_maps=args.min_mapas), top=args.top or 10)
-    else:
-        lines += format_hardest(hardest_maps(matches), top=args.top or 5)
-    print("\n".join(lines))
-    return 0

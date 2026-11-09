@@ -147,3 +147,82 @@ def hardest_maps(matches, top: int | None = None) -> list[MapDifficulty]:
         )
     )
     return out[:top] if top else out
+
+
+# --- diferencia entre equipos mapa por mapa ---------------------------------------
+
+TEAM_TYPES = ("team-vs", "tag-team-vs")
+
+
+@dataclass
+class MapResult:
+    """Resultado de un mapa jugado por equipos."""
+
+    game_id: int
+    title: str
+    version: str | None
+    red: int  # total del equipo rojo (solo suma a quienes pasaron el mapa)
+    blue: int
+    diff: int  # rojo menos azul: positivo, ventaja roja; negativo, ventaja azul
+    winner: str | None  # "red", "blue", o None si empatan
+    cumulative_diff: int  # suma de las diferencias hasta este mapa, incluido
+    red_wins: int  # mapas ganados por el rojo hasta acá, incluido este
+    blue_wins: int
+    flipped: bool  # contando también a quienes fallaron, ganaría el otro equipo
+
+
+def _team_totals(game, only_passed: bool) -> dict[str, int]:
+    totals = {"red": 0, "blue": 0}
+    for s in game.scores:
+        if s.team in totals and (s.passed or not only_passed):
+            totals[s.team] += s.score
+    return totals
+
+
+def _winner(red: int, blue: int) -> str | None:
+    if red > blue:
+        return "red"
+    if blue > red:
+        return "blue"
+    return None
+
+
+def team_series(match: Match) -> list[MapResult]:
+    """Resultado de cada mapa por equipos de la partida, en orden cronológico.
+
+    El total de cada equipo suma solo a quienes pasaron el mapa; si contar a los
+    que fallaron cambia el ganador, el resultado queda marcado (`flipped`). Los
+    mapas sin equipos (head-to-head) se saltean.
+    """
+    results: list[MapResult] = []
+    cumulative = red_wins = blue_wins = 0
+    for g in match.games:
+        if g.team_type not in TEAM_TYPES or not g.scores:
+            continue
+        if not all(s.team in ("red", "blue") for s in g.scores):
+            continue
+        counted = _team_totals(g, only_passed=True)
+        everyone = _team_totals(g, only_passed=False)
+        winner = _winner(counted["red"], counted["blue"])
+        diff = counted["red"] - counted["blue"]
+        cumulative += diff
+        if winner == "red":
+            red_wins += 1
+        elif winner == "blue":
+            blue_wins += 1
+        results.append(
+            MapResult(
+                game_id=g.id,
+                title=g.title or f"mapa {g.id}",
+                version=g.version,
+                red=counted["red"],
+                blue=counted["blue"],
+                diff=diff,
+                winner=winner,
+                cumulative_diff=cumulative,
+                red_wins=red_wins,
+                blue_wins=blue_wins,
+                flipped=_winner(everyone["red"], everyone["blue"]) != winner,
+            )
+        )
+    return results
