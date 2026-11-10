@@ -290,3 +290,35 @@ def test_match_cost_sin_mapas_y_tabla():
     m = match(1, [game(1, [sc(1, pts=2000), sc(2, pts=1000)])], players={1: "ana"}, name="P")
     text = "\n".join(format_mvp(m, match_costs(m)))
     assert "MVP: ana" in text and "rojo" in text
+
+
+# --- scores cargados a mano -------------------------------------------------------
+
+
+def manual(uid, pts=1000, acc=0.98, passed=True, team="red"):
+    return Score(user_id=uid, score=pts, accuracy=acc, max_combo=None, passed=passed,
+                 team=team, manual=True)
+
+
+def test_manual_cuenta_para_el_resultado_del_mapa():
+    # sin el score manual gana el rojo; con él, el azul
+    g = game(1, [sc(1, pts=1000, team="red"), sc(2, pts=600, team="blue"), manual(3, pts=700, team="blue")])
+    [r] = team_series(match(1, [g]))
+    assert (r.red, r.blue, r.winner) == (1000, 1300, "blue")
+
+
+def test_manual_no_entra_al_ranking_de_limpios_pero_si_el_fallo():
+    m = match(1, [game(1, [sc(1, miss=2), manual(2), manual(3, passed=False)])],
+              players={1: "ana", 2: "beto", 3: "cami"})
+    ranking = {p.username: p for p in clean_players(m, min_maps=0)}
+    assert ranking["beto"].maps == 0         # sin misses reales no se lo puede rankear
+    assert ranking["ana"].misses == 2
+    assert ranking["cami"].failed_maps == 1  # el fallo sí se cuenta
+
+
+def test_manual_cuenta_en_la_accuracy_del_mapa_pero_no_en_los_misses():
+    m = match(1, [game(1, [sc(1, acc=0.90, miss=4), manual(2, acc=1.0)])])
+    [d] = hardest_maps(m)
+    assert d.players == 2
+    assert d.avg_accuracy == pytest.approx(0.95)
+    assert d.avg_misses == 4.0  # promedio solo de quien tiene misses conocidos

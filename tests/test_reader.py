@@ -151,3 +151,63 @@ def test_jugador_desconocido_se_muestra_por_su_id(tmp_path):
 def test_una_ruta_que_no_existe_da_error(tmp_path):
     with pytest.raises(FileNotFoundError):
         load(tmp_path / "no-existe.jsonl")
+
+
+# --- correcciones a mano (manual_score) ---------------------------------------
+
+
+def manual_rec(mid, game_id, uid, pts, acc=0.99, passed=True, team="blue"):
+    return rec(mid, "manual_score", game_id=game_id,
+               score={"user_id": uid, "score": pts, "accuracy": acc, "rank": "A",
+                      "passed": passed, "team": team})
+
+
+def test_manual_score_se_suma_al_mapa_sin_tocar_el_original(tmp_path):
+    f = write(tmp_path / "datos" / "a.jsonl", [
+        match_rec(), player_rec(1, 7, "ana"), player_rec(1, 8, "beto"),
+        game_rec(1, 10, 100, "2026-01-01T10:10:00Z", [score(7, 900)]),
+    ])
+    antes = f.read_text(encoding="utf-8")
+    fix = write(tmp_path / "datos" / "correcciones.jsonl", [manual_rec(1, 100, 8, 750)])
+    [m] = load(tmp_path / "datos")
+    g = m.games[0]
+    assert [s.user_id for s in g.scores] == [7, 8]
+    nuevo = g.scores[1]
+    assert nuevo.manual and nuevo.score == 750 and nuevo.max_combo is None
+    assert not g.scores[0].manual
+    assert str(fix) in m.sources
+    assert f.read_text(encoding="utf-8") == antes  # el archivo de la API queda intacto
+
+
+def test_manual_score_no_depende_del_orden_de_los_archivos(tmp_path):
+    # "0_" se lee antes que "a_": la corrección llega antes que el mapa y igual se aplica
+    write(tmp_path / "0_correcciones.jsonl", [manual_rec(1, 100, 8, 750)])
+    write(tmp_path / "a_datos.jsonl", [
+        match_rec(), game_rec(1, 10, 100, "2026-01-01T10:10:00Z", [score(7, 900)])])
+    [m] = load(tmp_path)
+    assert sorted(s.user_id for s in m.games[0].scores) == [7, 8]
+
+
+def test_manual_score_ignorado_si_el_jugador_ya_tiene_score(tmp_path):
+    write(tmp_path / "a.jsonl", [
+        match_rec(), game_rec(1, 10, 100, "2026-01-01T10:10:00Z", [score(7, 900)]),
+        manual_rec(1, 100, 7, 123)])
+    [m] = load(tmp_path)
+    assert [s.score for s in m.games[0].scores] == [900]  # manda la API
+
+
+def test_manual_score_de_partida_o_mapa_inexistente_no_crea_nada(tmp_path):
+    write(tmp_path / "a.jsonl", [
+        match_rec(), game_rec(1, 10, 100, "2026-01-01T10:10:00Z", [score(7, 900)]),
+        manual_rec(1, 999, 8, 750),       # mapa que no existe
+        manual_rec(2, 100, 8, 750)])      # partida que no existe: no aparece como partida vacía
+    [m] = load(tmp_path)
+    assert m.match_id == 1 and len(m.games[0].scores) == 1
+
+
+def test_manual_score_roto_se_ignora(tmp_path):
+    write(tmp_path / "a.jsonl", [
+        match_rec(), game_rec(1, 10, 100, "2026-01-01T10:10:00Z", [score(7, 900)]),
+        rec(1, "manual_score", game_id=100, score={"user_id": 8})])  # faltan score y accuracy
+    [m] = load(tmp_path)
+    assert len(m.games[0].scores) == 1

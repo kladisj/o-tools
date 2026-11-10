@@ -95,6 +95,7 @@ class PlayerTotals:
     score_sum: int = 0
     acc_sum: float = 0.0
     misses: int = 0
+    miss_n: int = 0  # mapas pasados con misses conocidos (sin los cargados a mano)
 
     @property
     def avg_cost(self) -> float:
@@ -114,7 +115,7 @@ class PlayerTotals:
 
     @property
     def misses_per_map(self) -> float:
-        return self.misses / self.passed_maps if self.passed_maps else 0.0
+        return self.misses / self.miss_n if self.miss_n else 0.0
 
 
 @dataclass
@@ -127,6 +128,7 @@ class MapTotals:
     score_sum: int = 0
     acc_sum: float = 0.0
     miss_sum: int = 0
+    miss_n: int = 0  # scores pasados con misses conocidos (sin los cargados a mano)
 
     @property
     def avg_score(self) -> float:
@@ -138,7 +140,7 @@ class MapTotals:
 
     @property
     def avg_misses(self) -> float:
-        return self.miss_sum / self.passed if self.passed else 0.0
+        return self.miss_sum / self.miss_n if self.miss_n else 0.0
 
 
 @dataclass
@@ -226,12 +228,16 @@ def summarize(matches, skip_first: int = 0, min_matches: int = 1) -> TournamentS
                 mt.passed += 1
                 mt.score_sum += s.score
                 mt.acc_sum += s.accuracy
-                mt.miss_sum += misses
+                if not s.manual:
+                    mt.miss_sum += misses
+                    mt.miss_n += 1
                 p = players[s.user_id]
                 p.passed_maps += 1
                 p.score_sum += s.score
                 p.acc_sum += s.accuracy
-                p.misses += misses
+                if not s.manual:
+                    p.misses += misses
+                    p.miss_n += 1
                 where = f"{g.title or g.id} [{g.version}] · {m.display_name}"
                 if best_score is None or s.score > best_score[0]:
                     best_score = (s.score, m.username(s.user_id), where)

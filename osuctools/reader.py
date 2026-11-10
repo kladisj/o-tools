@@ -4,6 +4,11 @@ Es la única parte de osuctools que conoce el formato del archivo: el resto
 (stats, salidas, torneo) trabaja con Match, Game y Score. Si el formato cambia,
 se arregla acá.
 
+Correcciones a mano: una línea {"kind": "manual_score", "match_id": ..., "game_id": ...,
+"score": {...}} en cualquier .jsonl agrega el score de alguien que se desconectó (la API
+no lo guarda). Se aplica al final de load(), sin tocar los archivos originales; ver
+_parse_manual para los campos.
+
 Uso rápido, para ver qué hay en una carpeta o archivo:
     python -m osuctools.reader ~/github/osu/datos/OWC2026
 """
@@ -28,12 +33,13 @@ class Score:
     user_id: int
     score: int
     accuracy: float  # fracción entre 0 y 1 (0.98 = 98 %)
-    max_combo: int
+    max_combo: int | None  # None en los scores cargados a mano
     passed: bool
     team: str | None = None  # "red" / "blue" en partidas por equipos
     mods: list[str] = field(default_factory=list)
     statistics: dict = field(default_factory=dict)  # count_300, count_miss, etc.
     rank: str | None = None
+    manual: bool = False  # cargado a mano: score y accuracy valen, misses y combo no se conocen
 
 
 @dataclass
@@ -102,6 +108,28 @@ def _parse_score(s: dict) -> Score:
     )
 
 
+def _parse_manual(rec: dict) -> Score:
+    """Score de un jugador que se desconectó, cargado a mano.
+
+    Campos de rec["score"]: user_id, score, accuracy (fracción 0-1), team ("red"/"blue"),
+    passed (por defecto True; False si el jugador falló el mapa), rank y mods (opcionales).
+    No tiene misses ni combo: se marca manual y esas estadísticas lo ignoran.
+    """
+    s = rec["score"]
+    return Score(
+        user_id=s["user_id"],
+        score=s["score"],
+        accuracy=s["accuracy"],
+        max_combo=None,
+        passed=s.get("passed", True),
+        team=s.get("team"),
+        mods=s.get("mods") or [],
+        statistics={},
+        rank=s.get("rank"),
+        manual=True,
+    )
+
+
 def _parse_game(g: dict) -> Game:
     b = g.get("beatmap") or {}
     return Game(
@@ -148,7 +176,9 @@ def _apply(m: Match, rec: dict) -> None:
     # (agregados sin cambiar schema_version) no rompe este lector
 
 
-def _parse_file(path: Path) -> dict[int, Match]:
+def _parse_file(path: Path, manual: list | None = None) -> dict[int, Match]:
+    """Las líneas manual_score no crean partidas: se juntan en `manual` y se aplican
+    al final, cuando ya están todos los mapas cargados."""
     matches: dict[int, Match] = {}
     with open(path, encoding="utf-8") as f:
         for n, line in enumerate(f, 1):
@@ -169,6 +199,11 @@ def _parse_file(path: Path) -> dict[int, Match]:
                     f"{path}: formato versión {version}, este lector entiende "
                     f"hasta la {SUPPORTED_SCHEMA}"
                 )
+
+            if rec.get("kind") == "manual_score":
+                if manual is not None:
+                    manual.append((path, n, rec))
+                continue
 
             match_id = rec.get("match_id")
             if match_id is None:
@@ -194,6 +229,31 @@ def _merge(into: Match, other: Match) -> None:
     into.sources.extend(s for s in other.sources if s not in into.sources)
 
 
+def _apply_manual(merged: dict[int, Match], manual: list) -> None:
+    """Agrega los scores cargados a mano al mapa que dicen. Si el jugador ya tiene score
+    en ese mapa (la API sí lo tenía), manda la API y la corrección se ignora."""
+    for path, n, rec in manual:
+        try:
+            match = merged.get(rec["match_id"])
+            game_id = rec["game_id"]
+            score = _parse_manual(rec)
+        except (KeyError, TypeError):
+            log.warning("%s: la línea %d (manual_score) tiene un formato inesperado, se ignora", path, n)
+            continue
+        game = match._games.get(game_id) if match else None
+        if game is None:
+            log.warning("%s: la línea %d apunta a la partida %s, mapa %s, que no está en los "
+                        "datos; se ignora", path, n, rec.get("match_id"), game_id)
+            continue
+        if any(s.user_id == score.user_id for s in game.scores):
+            log.warning("%s: la línea %d: el jugador %s ya tiene score en ese mapa; se ignora",
+                        path, n, score.user_id)
+            continue
+        game.scores.append(score)
+        if str(path) not in match.sources:
+            match.sources.append(str(path))
+
+
 # --- API pública ----------------------------------------------------------------
 
 
@@ -216,13 +276,15 @@ def load(*paths) -> list[Match]:
     pruebas), llamá a load() por separado para cada uno.
     """
     merged: dict[int, Match] = {}
+    manual: list = []
     for path in paths:
         for file in find_files(path):
-            for match_id, m in _parse_file(file).items():
+            for match_id, m in _parse_file(file, manual).items():
                 if match_id in merged:
                     _merge(merged[match_id], m)
                 else:
                     merged[match_id] = m
+    _apply_manual(merged, manual)
     return sorted(merged.values(), key=lambda m: (m.start_time or "", m.match_id))
 
 

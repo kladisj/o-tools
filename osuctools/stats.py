@@ -72,6 +72,8 @@ def clean_players(matches, min_maps: int = 1) -> list[CleanPlayer]:
                 if not s.passed:
                     p.failed_maps += 1
                     continue
+                if s.manual:  # sin misses reales: no puede entrar al ranking de limpieza
+                    continue
                 misses = s.statistics.get("count_miss", 0)
                 p.maps += 1
                 p.misses += misses
@@ -128,6 +130,7 @@ def hardest_maps(matches, top: int | None = None, by: str = "auto") -> list[MapD
             if not g.scores:
                 continue
             passed = [s for s in g.scores if s.passed]
+            with_misses = [s for s in passed if not s.manual]  # los manuales no traen misses
             out.append(
                 MapDifficulty(
                     match_id=m.match_id,
@@ -142,8 +145,8 @@ def hardest_maps(matches, top: int | None = None, by: str = "auto") -> list[MapD
                         sum(s.accuracy for s in passed) / len(passed) if passed else None
                     ),
                     avg_misses=(
-                        sum(s.statistics.get("count_miss", 0) for s in passed) / len(passed)
-                        if passed
+                        sum(s.statistics.get("count_miss", 0) for s in with_misses) / len(with_misses)
+                        if with_misses
                         else None
                     ),
                 )
