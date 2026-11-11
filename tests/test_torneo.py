@@ -97,3 +97,48 @@ def test_equipo_se_detecta_por_el_pais_mayoritario():
     assert team_labels(m) == {"red": "CN", "blue": "Azul"}
     m.countries.update({7: "FR"})  # azul pasa a 3 FR + 1 CN
     assert team_labels(m) == {"red": "CN", "blue": "FR"}
+
+
+# --- identificación de equipos por país ------------------------------------------
+
+
+def match_con_paises(red, blue, mid=1):
+    """Una partida de un mapa. `red` y `blue`: el país de cada jugador de ese equipo."""
+    scores, countries = [], {}
+    for i, c in enumerate(red, 1):
+        scores.append(sc(i, 900, "red"))
+        countries[i] = c
+    for i, c in enumerate(blue, 101):
+        scores.append(sc(i, 500, "blue"))
+        countries[i] = c
+    return match(mid, f"P{mid}", [game(1, 10, scores)], countries=countries)
+
+
+def test_tres_de_nueva_zelanda_y_dos_con_otra_bandera_es_nueva_zelanda():
+    m = match_con_paises(["NZ", "NZ", "NZ", "AU", "AU"], ["FR"] * 5)
+    assert team_labels(m) == {"red": "NZ", "blue": "FR"}
+
+
+def test_gana_el_pais_con_mas_jugadores_aunque_no_llegue_a_la_mitad():
+    m = match_con_paises(["NZ", "NZ", "AU", "CA", "US"], ["FR"] * 5)
+    assert team_labels(m)["red"] == "NZ"
+
+
+def test_empate_entre_paises_deja_ese_equipo_sin_identificar():
+    m = match_con_paises(["NZ", "NZ", "AU", "AU"], ["FR"] * 4)
+    assert team_labels(m) == {"red": "Rojo", "blue": "FR"}
+
+
+def test_los_dos_equipos_con_el_mismo_pais_no_se_identifican():
+    m = match_con_paises(["NZ"] * 4, ["NZ"] * 4)
+    assert team_labels(m) == {"red": "Rojo", "blue": "Azul"}
+
+
+def test_con_un_solo_equipo_identificado_la_partida_no_entra_a_las_posiciones():
+    ok = match_con_paises(["CN"] * 4, ["FR"] * 4, mid=1)
+    azul_sin_identificar = match_con_paises(["CN"] * 4, ["FR", "FR", "AU", "AU"], mid=2)
+    rojo_sin_identificar = match_con_paises(["CN", "CN", "AU", "AU"], ["FR"] * 4, mid=3)
+    s = summarize([ok, azul_sin_identificar, rojo_sin_identificar])
+    assert s.skipped_standings == 2
+    assert sorted(t.team for t in s.standings) == ["CN", "FR"]  # no aparece "Rojo" ni "Azul"
+    assert all(t.played == 1 for t in s.standings)

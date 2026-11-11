@@ -4,9 +4,11 @@ Funciones puras: reciben la lista de Match que devuelve reader.load() y
 devuelven un TournamentSummary. No leen archivos ni imprimen.
 
 Equipos: en cada partida, el equipo rojo/azul se identifica por el país que
-tiene la mayoría de sus jugadores (torneos de selecciones: "CN", "FR"). Si no
-hay mayoría, queda como "Rojo"/"Azul" y esa partida no entra a las posiciones,
-porque no se puede saber qué equipo es cuál entre partidas.
+más jugadores tiene (torneos de selecciones: "CN", "FR"), aunque algunos de sus
+jugadores lleven otra bandera. Si dos países empatan en el primer puesto, ese
+color queda como "Rojo"/"Azul". Una partida solo entra a las posiciones si SE
+IDENTIFICARON LOS DOS equipos, porque si no, no se puede saber qué equipo es
+cuál entre partidas.
 
 Los promedios de score, accuracy y misses usan solo a quienes pasaron el mapa
 (misma regla que stats.py); los scores en 0 no cuentan en ningún cálculo.
@@ -30,10 +32,9 @@ def trim(match: Match, skip_first: int = 0) -> Match:
 
 
 def team_labels(match: Match) -> dict[str, str]:
-    """{"red": "CN", "blue": "FR"}: el país que tiene la mayoría estricta de los
-    jugadores de cada equipo. Si no hay mayoría (o los dos equipos darían el
-    mismo país), ese color queda como "Rojo"/"Azul" y la partida no entra a
-    las posiciones."""
+    """{"red": "CN", "blue": "FR"}: el país que más jugadores tiene en cada equipo
+    (3 de NZ y 2 con otra bandera: NZ). Si dos países empatan en el primer puesto,
+    o los dos equipos darían el mismo país, ese color queda como "Rojo"/"Azul"."""
     members: dict[str, dict[int, str]] = {"red": {}, "blue": {}}
     for g in match.games:
         for s in g.scores:
@@ -41,8 +42,9 @@ def team_labels(match: Match) -> dict[str, str]:
                 members[s.team][s.user_id] = match.countries[s.user_id]
     labels = {}
     for color, who in members.items():
-        top = Counter(who.values()).most_common(1)
-        labels[color] = top[0][0] if top and top[0][1] * 2 > len(who) else COLORS[color]
+        ranked = Counter(who.values()).most_common(2)
+        clear_leader = bool(ranked) and (len(ranked) == 1 or ranked[0][1] > ranked[1][1])
+        labels[color] = ranked[0][0] if clear_leader else COLORS[color]
     return labels if labels["red"] != labels["blue"] else dict(COLORS)
 
 
@@ -186,7 +188,7 @@ def summarize(matches, skip_first: int = 0, min_matches: int = 1) -> TournamentS
                 blowout = (r, m)
 
         res = out.results[-1]
-        if res.maps and labels["red"] not in COLORS.values():
+        if res.maps and res.red not in COLORS.values() and res.blue not in COLORS.values():
             for label, mine, theirs, d in ((res.red, res.red_maps, res.blue_maps, res.diff),
                                            (res.blue, res.blue_maps, res.red_maps, -res.diff)):
                 st = standings.setdefault(label, Standing(label))
