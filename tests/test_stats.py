@@ -292,6 +292,49 @@ def test_match_cost_sin_mapas_y_tabla():
     assert "MVP: ana" in text and "rojo" in text
 
 
+def test_tabla_mvp_muestra_el_pais_del_equipo():
+    m = match(1, [game(1, [sc(1, pts=2000, team="red"), sc(2, pts=1000, team="blue")])],
+              players={1: "ana", 2: "beto"}, name="P")
+    text = "\n".join(format_mvp(m, match_costs(m), labels={"red": "CN", "blue": "FR"}))
+    assert "CN" in text and "FR" in text
+    assert "rojo" not in text and "azul" not in text
+
+
+def test_tabla_mvp_con_un_equipo_sin_identificar_muestra_su_color():
+    m = match(1, [game(1, [sc(1, pts=2000, team="red"), sc(2, pts=1000, team="blue")])],
+              players={1: "ana", 2: "beto"}, name="P")
+    text = "\n".join(format_mvp(m, match_costs(m), labels={"red": "CN", "blue": "Azul"}))
+    assert "CN" in text and "azul" in text
+
+
+def test_comando_mvp_muestra_el_pais_de_cada_equipo(tmp_path, capsys):
+    def rec(kind, **payload):
+        return {"schema_version": 1, "match_id": 1, "kind": kind, **payload}
+
+    def score(uid, pts, team):
+        return {"user_id": uid, "score": pts, "accuracy": 0.98, "max_combo": 500, "passed": True,
+                "rank": "A", "mods": [], "team": team, "slot": 0, "statistics": {"count_miss": 0}}
+
+    played = {"id": 100, "match_id": 1, "beatmap": {"id": 9, "title": "Mapa"},
+              "start_time": "2026-01-01T10:10:00Z", "end_time": "2026-01-01T10:13:00Z",
+              "mode": "osu", "scoring_type": "scorev2", "team_type": "team-vs", "mods": [],
+              "scores": [score(1, 2000, "red"), score(2, 1000, "blue")]}
+    lines = [
+        rec("match", match={"name": "Final", "start_time": None, "end_time": None}),
+        rec("player", player={"id": 1, "username": "ana", "country_code": "AR"}),
+        rec("player", player={"id": 2, "username": "beto", "country_code": "FR"}),
+        rec("event", event={"id": 10, "type": "game", "timestamp": "t", "user_id": None,
+                            "text": None, "game": played}),
+    ]
+    f = tmp_path / "a.jsonl"
+    f.write_text("\n".join(json.dumps(x) for x in lines) + "\n", encoding="utf-8")
+
+    assert main(["mvp", str(f)]) == 0
+    out = capsys.readouterr().out
+    assert "AR" in out and "FR" in out
+    assert "rojo" not in out and "azul" not in out
+
+
 # --- scores cargados a mano -------------------------------------------------------
 
 

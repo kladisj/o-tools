@@ -68,8 +68,21 @@ def format_hardest(maps, top: int = 5) -> list[str]:
 TEAM_NAMES = {"red": "rojo", "blue": "azul"}
 
 
-def format_mvp(match, costs, top: int = 10) -> list[str]:
-    """MVP y ranking de match cost de una partida."""
+def _team_cell(team, labels) -> str:
+    """Lo que se muestra en la columna del equipo: el país si se identificó
+    ("CN"), y si no, el color ("rojo"/"azul")."""
+    label = (labels or {}).get(team)
+    if label and label.lower() not in TEAM_NAMES.values():
+        return label
+    return TEAM_NAMES.get(team, "-")
+
+
+def format_mvp(match, costs, top: int = 10, labels=None) -> list[str]:
+    """MVP y ranking de match cost de una partida.
+
+    `labels`: {"red": "CN", "blue": "FR"} (ver torneo.resumen.team_labels). Si no se
+    pasa, la columna del equipo muestra el color.
+    """
     if not costs:
         return [f"{match.display_name}: no hay mapas con scores."]
     best = costs[0]
@@ -81,7 +94,7 @@ def format_mvp(match, costs, top: int = 10) -> list[str]:
     ]
     for i, p in enumerate(costs[:top], 1):
         lines.append(
-            f"  {i:>2}  {_trunc(p.username, 18):<18} {TEAM_NAMES.get(p.team, '-'):<6}"
+            f"  {i:>2}  {_trunc(p.username, 18):<18} {_team_cell(p.team, labels):<6}"
             f" {p.maps:>2}/{p.total_maps:<2} {p.match_cost:>10.2f} {p.avg_ratio:>10.2f}"
         )
     return lines

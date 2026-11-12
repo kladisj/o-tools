@@ -16,7 +16,7 @@ from pathlib import Path
 from .reader import ReaderError, load
 from .salidas.consola import format_clean, format_hardest, format_header, format_mvp, format_torneo
 from .salidas.html import render
-from .torneo.resumen import summarize
+from .torneo.resumen import summarize, team_labels, trim
 from .stats import clean_players, hardest_maps, match_costs, team_series
 
 
@@ -62,7 +62,9 @@ def _mvp_command(args) -> int:
         return 1
     lines: list[str] = []
     for m in matches:  # el match cost es por partida: nunca se mezclan
-        lines += format_mvp(m, match_costs(m, skip_first=args.omitir), top=args.top or 10) + [""]
+        labels = team_labels(trim(m, args.omitir))  # el país de cada equipo, si se puede saber
+        lines += format_mvp(m, match_costs(m, skip_first=args.omitir), top=args.top or 10,
+                            labels=labels) + [""]
     print("\n".join(lines).rstrip())
     return 0
 
