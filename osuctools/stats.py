@@ -103,6 +103,7 @@ class MapDifficulty:
     avg_accuracy: float | None  # promedio de quienes lo pasaron (fracción 0-1)
     avg_misses: float | None  # ídem
     order: str = "fallos"  # criterio con el que se ordenó: fallos, misses o accuracy
+    beatmapset_id: int | None = None  # para mostrar la imagen del mapa
 
     @property
     def fail_rate(self) -> float:
@@ -139,6 +140,7 @@ def hardest_maps(matches, top: int | None = None, by: str = "auto") -> list[MapD
                     title=g.title or f"mapa {g.id}",
                     version=g.version,
                     stars=g.stars,
+                    beatmapset_id=g.beatmapset_id,
                     players=len(g.scores),
                     fails=len(g.scores) - len(passed),
                     avg_accuracy=(
@@ -186,6 +188,7 @@ class MapResult:
     red_wins: int  # mapas ganados por el rojo hasta acá, incluido este
     blue_wins: int
     flipped: bool  # contando también a quienes fallaron, ganaría el otro equipo
+    beatmapset_id: int | None = None  # para mostrar la imagen del mapa
 
 
 def _team_totals(game, only_passed: bool) -> dict[str, int]:
@@ -232,6 +235,7 @@ def team_series(match: Match) -> list[MapResult]:
                 game_id=g.id,
                 title=g.title or f"mapa {g.id}",
                 version=g.version,
+                beatmapset_id=g.beatmapset_id,
                 red=counted["red"],
                 blue=counted["blue"],
                 diff=diff,

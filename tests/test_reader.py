@@ -24,7 +24,7 @@ def score(uid, pts, acc=0.98, combo=500, passed=True, team="red"):
 
 
 def game_rec(mid, event_id, game_id, start, scores, title="Mapa"):
-    beatmap = {"id": 9, "title": title, "artist": "X", "version": "Insane",
+    beatmap = {"id": 9, "beatmapset_id": 77, "title": title, "artist": "X", "version": "Insane",
                "difficulty_rating": 5.5, "length_seconds": 100}
     game = {"id": game_id, "match_id": mid, "beatmap": beatmap, "start_time": start,
             "end_time": start, "mode": "osu", "scoring_type": "scorev2",
@@ -211,3 +211,17 @@ def test_manual_score_roto_se_ignora(tmp_path):
         rec(1, "manual_score", game_id=100, score={"user_id": 8})])  # faltan score y accuracy
     [m] = load(tmp_path)
     assert len(m.games[0].scores) == 1
+
+
+def test_lee_el_set_de_beatmaps_para_la_imagen_del_mapa(tmp_path):
+    write(tmp_path / "a.jsonl", [match_rec(), game_rec(1, 10, 100, "2026-01-01T10:10:00Z", [score(7, 900)])])
+    [m] = load(tmp_path)
+    assert m.games[0].beatmapset_id == 77
+
+
+def test_archivos_sin_beatmapset_id_siguen_cargando(tmp_path):
+    r = game_rec(1, 10, 100, "2026-01-01T10:10:00Z", [score(7, 900)])
+    del r["event"]["game"]["beatmap"]["beatmapset_id"]
+    write(tmp_path / "a.jsonl", [match_rec(), r])
+    [m] = load(tmp_path)
+    assert m.games[0].beatmapset_id is None

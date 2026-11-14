@@ -365,3 +365,14 @@ def test_manual_cuenta_en_la_accuracy_del_mapa_pero_no_en_los_misses():
     assert d.players == 2
     assert d.avg_accuracy == pytest.approx(0.95)
     assert d.avg_misses == 4.0  # promedio solo de quien tiene misses conocidos
+
+
+# --- imagen del mapa ----------------------------------------------------------
+
+
+def test_el_set_de_beatmaps_llega_a_la_serie_y_a_los_mapas_duros():
+    g = game(1, [sc(1, team="red"), sc(2, team="blue")])
+    g.beatmapset_id = 555
+    m = match(1, [g])
+    assert team_series(m)[0].beatmapset_id == 555
+    assert hardest_maps(m)[0].beatmapset_id == 555

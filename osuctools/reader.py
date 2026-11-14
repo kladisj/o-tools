@@ -49,6 +49,7 @@ class Game:
     id: int
     scores: list[Score]
     beatmap_id: int | None = None
+    beatmapset_id: int | None = None  # el set de beatmaps: de ahí sale la imagen del mapa
     title: str | None = None
     artist: str | None = None
     version: str | None = None  # nombre de la dificultad
@@ -136,6 +137,7 @@ def _parse_game(g: dict) -> Game:
         id=g["id"],
         scores=[_parse_score(s) for s in g["scores"]],
         beatmap_id=b.get("id"),
+        beatmapset_id=b.get("beatmapset_id"),
         title=b.get("title"),
         artist=b.get("artist"),
         version=b.get("version"),
